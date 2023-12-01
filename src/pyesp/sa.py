@@ -5,17 +5,14 @@ from ipaddress import IPv4Address, IPv6Address
 from construct.core import *
 from construct.lib import *
 
-from ipstack import IpAddress, Ipv6Address
+from pyesp.ipstack import IpAddress, Ipv6Address
 #from ipsec import SP
 
 IIV_Nonce = IfThenElse(this.ext_seq_num_flag,
-    Struct(
-        "zero" / Const(b'\x00\x00\x00\x00'),
-        "seq_num_counter" / Int32ub
-         ),
-    Struct(
-        "seq_num_counter" / Int64ub
-    )
+  Struct(
+    "zero" / Const( b'\x00\x00\x00\x00' ),
+    "sn" / Int32ub ),
+  Struct( "sn" / Int64ub )
 )
 
 class Error(Exception):
@@ -34,8 +31,8 @@ class SA:
     
     def __init__(self):
         ## RFC4301
-        self.sec_param_index = get_random_bytes(4)
-        self.seq_num_counter = 0
+        self.spi = get_random_bytes(4)
+        self.sn = 0
         self.seq_counter_overflow = True
         self.anti_replay_win = 1
         self.ah_auth_alg = None
@@ -127,7 +124,7 @@ class SA:
 
         """
         if self.esp_enc_alg  == "ENCR_AES_GCM_16_IIV":
-            nonce = IIV_Nonce.build({'seq_num_counter':self.seq_num_counter},\
+            nonce = IIV_Nonce.build({'sn':self.sn},\
                                     ext_seq_num_flag=self.ext_seq_num_flag)
             return [AES.new(self.esp_enc_key, AES.MODE_GCM,\
                             nonce=nonce, mac_len=self.icv_len())]
@@ -137,25 +134,25 @@ class SA:
         if self.esp_enc_alg == "ENCR_AES_GCM_16_IIV":
             return int(16)
 
-    def seq_num_counter_len(self):
+    def sn_len(self):
         return 4
 
-    def sec_param_index_len(self):
+    def spi_len(self):
         return 4
 
-    def get_seq_num_counter(self, sn_len=None):
+    def get_sn(self, sn_len=None):
         if sn_len == None:
-            sn_len = self.seq_num_counter_len()
+            sn_len = self.sn_len()
         if sn_len == 0:
             return b''
-        return Int64ub.build(self.seq_num_counter)[-sn_len:]
+        return Int64ub.build(self.sn)[-sn_len:]
 
-    def get_sec_param_index(self, spi_len=None):
+    def get_spi(self, spi_len=None):
         if spi_len == None:
-            spi_len = self.sec_param_index_len()
+            spi_len = self.spi_len()
         if spi_len == 0:
             return b''
-        return self.sec_param_index[-spi_len:]
+        return self.spi[-spi_len:]
 
     def ts_ip_version(self):
         try:
