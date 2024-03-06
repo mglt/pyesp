@@ -1,4 +1,4 @@
-#import pyesp.ip6_header 
+import pyesp.h6
 import ipaddress
 
 from construct import *
@@ -6,11 +6,12 @@ from construct.lib import *
 
 
 UserDatagram = Struct(
+  "_name" / Computed( 'UserDatagram' ),
   "src_port" / Int16ub,
   "dst_port" / Int16ub,
   "length" / ExprAdapter(Int16ub,
-        encoder = lambda obj,ctx: obj + 8,
-        decoder = lambda obj,ctx: obj - 8,
+    encoder = lambda obj,ctx: obj + 8,
+    decoder = lambda obj,ctx: obj - 8,
     ),
   "checksum" / Bytes(2),
   "data" / GreedyBytes
@@ -31,7 +32,7 @@ UDPseudoHeader = Struct(
     "length" / BitsInteger(2)
 ) 
 
-class UDP:
+class UDP( pyesp.h6.H6 ):
 
   def __init__( self, 
                 src_port=0,
@@ -42,6 +43,8 @@ class UDP:
                 packed=None, 
                 src_ip=None, 
                 dst_ip=None ):
+    self.header_type='UDP'
+    self.struct = UserDatagram
     if packed != None:
       self.unpack( packed, src_ip=src_ip, dst_ip=dst_ip )
     else:
@@ -142,11 +145,11 @@ class UDP:
                 f"/ Expecting {expected_checksum}" )
     return self.data
 
-  def show( self ):
-    """Display the UDP packet 
-    """
-    print( "## UDP ##" )
-    print( UserDatagram.parse( self.pack( ) ) )
-    print( "binary:" )
-    print( self.pack() ) 
-    print( "\n" )
+#  def show( self ):
+#    """Display the UDP packet 
+#    """
+#    print( "## UDP ##" )
+#    print( UserDatagram.parse( self.pack( ) ) )
+#    print( "binary:" )
+#    print( self.pack() ) 
+#    print( "\n" )
