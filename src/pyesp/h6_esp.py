@@ -1,9 +1,11 @@
 import binascii
+import secrets
 
 from construct.core import *
 from construct.lib import *
 
 from pyesp.sa import SA, Error
+import pyesp.h6
 
 """
 
@@ -11,16 +13,16 @@ https://pycryptodome.readthedocs.io/en/latest/src/cipher/modern.html
 https://construct.readthedocs.io/en/latest/meta.html
 
 """
-NextHeader = Enum(BytesInteger(1), 
-    IPv4 = 6,
-    TCP = 6,
-    UDP = 17,
-    IPv6 = 41,
-    ESP = 50, 
-    AH = 51, 
-    NoNxt = 59,
-    SCTP = 132
-)
+##NextHeader = Enum(BytesInteger(1), 
+##    IPv4 = 6,
+##    TCP = 6,
+##    UDP = 17,
+##    IPv6 = 41,
+##    ESP = 50, 
+##    AH = 51, 
+##    IPv6NoNxt = 59,
+##    SCTP = 132
+##)
 
 
 Pad = GreedyRange(Byte)
@@ -30,7 +32,7 @@ ESPPayload = Struct(
   "pad" / Bytes(this._.pad_len),
 #  "pad_len" / Rebuild( Int8ub, len_(this.pad)),
   "pad_len" / Int8ub,
-  "next_header" / NextHeader,
+  "next_header" / pyesp.h6.NextHeaderType,
   "integrity" / Check(this.pad_len == len_(this.pad)),
 )
 
@@ -41,11 +43,69 @@ EncryptedESP = Struct(
   "icv" / Bytes(this._.icv_len)
 )
 
+## signed_payload contains encrypted and icv.
+SignedESP = Struct(
+  "spi" / Bytes(4), 
+  "sn" / Bytes(4),
+  "signed_payload" / Bytes(this._.signed_payload_len),
+)
+
+
+## only used to show
+ClearTextESP = Struct(
+  "_name" / Computed( "ClearTextESP" ),      
+  "spi" / Bytes(4), 
+  "sn" / Bytes(4),
+  "payload" / Struct(
+    "data" / Bytes(this._._.data_len),
+    "pad" / Bytes(this._._.pad_len),
+#    "pad_len" / Rebuild( Int8ub, len_(this.pad)),
+    "pad_len" / Int8ub,
+    "next_header" / pyesp.h6.NextHeaderType ),
+  "icv" / Bytes(this._.icv_len)
+)
+
+
 class ESP:
     
-  def __init__(self, sa):
-    self.sa = sa
+  def __init__(self,\
+    sa=None, 
+    spi:bytes=secrets.randbits( 32 ), 
+    sn=0, 
+    pad_len=None,
+    next_header='IPv6NoNxt',
+    data=b'',
+    encrypted_payload=None,
+    signed_payload=None,
+    icv=None, 
+    packed=None ):
+
+    self.header_type = 'ESP'
+    self.struct = ClearTextESP
     self.esp_align = 4
+    self.pad_len = pad_len  
+    self.data = data
+    self.next_header = next_header
+    self.encrypted_payload = encrypted_payload
+    self.signed_payload = signed_payload
+    self.icv = icv
+
+    if isinstance( icv, bytes ):
+      self.icv_len = len( icv )
+    else: 
+      self.icv_len = None
+    if sa is not None:  
+      self.sa = sa
+      self.spi = self.sa.spi
+      self.sn = self.sa.sn
+      self.icv_len = self.sa.icv_len()
+    else: 
+      self.sa = None  
+      self.spi = spi
+      self.sn = sn
+
+    if packed is not None:
+      self.unpack( packed )
 
   def decrypt_and_verify(self, payload):
     """ decrypt data from encrypted_dats and icv
@@ -64,16 +124,27 @@ class ESP:
     return data
 
 
-  def pad(self, data_len, pad_len=None):
-    if pad_len == None:
-        pad_len = ( 2 - data_len)%self.esp_align
-    if (data_len + pad_len + 2) %self.esp_align != 0:
+  def build_pad(self, data=None ):
+    """ establish pad based on data
+    
+    data may be specified to avoid self.data to be 
+    built multiple times
+    """
+    if data is None:
+      data = self.data
+    if isinstance( data, bytes ) is False:
+      data = self.data.pack()
+    data_len = len( data )  
+    if self.pad_len == None:
+        self.pad_len = ( 2 - data_len)%self.esp_align
+    if ( data_len + self.pad_len + 2 )%self.esp_align != 0:
         raise PadLenError({'data_len': data_len, 'pad_len':pad_len}, \
                           "32 bits alignment is not respected")
-    return Pad.build(range(pad_len + 1)[1:]) 
+    return Pad.build(range( self.pad_len + 1)[1:]) 
 
 
-  def pack(self, data, pad_len=None, next_header="NoNxt", debug=False):
+#  def pack(self, data, pad_len=None, next_header="IPv6NoNxt", debug=False):
+  def pack(self ):
     """ Generates an ESP encrypted packet
 
     Args:
@@ -86,126 +157,211 @@ class ESP:
             packet: {'spi':spi, 'sn':sn,\
                       'encrypted_payload':ep, 'icv':icv}
 
+    In the best case, sa is provided and data is encrypted 
+    When there is no SA we cannot unpack and retrieve data. In that case, we try to pack without data and use either signed_payload or encrypted_payload.  
     """
-    esp_payload_data, next_header = self.pack_esp_payload_data( data )
+    ## we do not have self.data in clear text.
+    ## this happens when the packet is simply 
+    ## received without context.
+    print( self.__dict__ )
+    if self.data is None :
+      if self.icv is not None and\
+         self.encrypted_payload is not None:
+        encrypted_esp_payload = EncryptedESP.build(
+          { "spi" : self.spi, 
+            "sn" : self.sn,
+             "encrypted_payload" : self.encrypted_payload,
+             "icv" : self.icv }, \
+        encrypted_payload_len = len( self.encrypted_payload ),\
+        icv_len = len( self.icv ) )
+        
+      elif self.icv_len is None and \
+         self.signed_payload is not None:
+        encrypted_esp_payload = SignedESP.build( 
+          { 'spi' : self.spi, 
+            'sn' : self.sn, 
+            'signed_payload' : self.signed_payload}, 
+          signed_payload_len = len( self.signed_payload) )
+      else:   
+        raise ValueError( "Unable to pack ESP without data" )
+      return encrypted_esp_payload
+    ## we have self.data in clear text
+    else:   
+      if isinstance( self.data, bytes ) is False:
+        data = self.data.pack()
+      else: 
+        data = self.data    
+      pad = self.build_pad( data=data)
+   
+      #clear_text_esp_payload
+      esp_payload = ESPPayload.build(\
+        { 'data' : data,
+          'pad' : pad,
+          'pad_len' : len( pad ),
+          'next_header' : self.next_header },
+           data_len=len( data ),
+           pad_len=len( pad ) )
+#    esp_payload_data, next_header = self.pack_esp_payload_data( data )
     
-    clear_text_esp_payload = self.pack_clear_text_esp_payload(\
-                               esp_payload_data, \
-                               pad_len=pad_len, \
-                               debug=debug )
-
-    return self.pack_encrypted_esp( clear_text_esp_payload,\
-                                       debug=debug )
-
-  def pack_esp_payload_data( self, data ):
-    """ Preprocesses data before ESP encapsulation
-
-    These functions have been placed in order to enable the
-    enrichment of ESP. EHC is one example. 
-
-    Args:
-        data (dict/bytes): the data to be formated. When a
-            structure is provided, the data needs to be converted 
-            to bytes. 
-    Returns:
-        data (bytes): data to encapsulated
-        next_header (str): the type of data (IPv6, UDP,TCP, 
-          or "NoNxt" (default)
-    """
-
-    # if SA mentions port compression
-    # if UDP Packet 
-
-    # if TCP packet 
-
-    ## compress openSCHC 
-    ## return bytes
-    next_header="NoNxt"
-    return data, next_header
+#    clear_text_esp_payload = self.pack_clear_text_esp_payload(\
+#                               esp_payload_data, \
+#                               pad_len=pad_len, \
+#                               debug=debug )
+#    if debug is True :
+#      print( "\n## ESP Payload :" )
+#      print( ESPPayload.parse( esp_payload, \
+#                        data_len=len( esp_payload_data ), 
+#                        pad_len=len( pad ) ) )
+#      print( "binary:" )
+#      print( binascii.hexlify( esp_payload ) )
 
 
-  def pack_clear_text_esp_payload(self, esp_payload_data:bytes, \
-                                   next_header="NoNxt", \
-                                   pad_len=None, debug=False ) -> bytes :
-    """ Process the ESP payload 
+      if self.sa is None:
+        return esp_payload
+   
+      ciphers = self.sa.ciphers_obj()
+      if len(ciphers) == 1:
+        self.encrypted_payload, self.icv = \
+          ciphers[0].encrypt_and_digest( esp_payload )
+        self.icv_len = len( self.icv )       
+      encrypted_esp_payload = EncryptedESP.build(\
+                {'spi' : self.sa.get_spi(),\
+                 'sn' : self.sa.get_sn(),\
+                 'encrypted_payload' : self.encrypted_payload, 
+                 'icv' : self.icv }, \
+                 encrypted_payload_len=len( self.encrypted_payload ),\
+                 icv_len=self.icv_len )
+    return encrypted_esp_payload
 
-    These functions have been placed in order to enable the
-    enrichment of ESP. EHC is one example. 
-
-    Args:
-        esp_payload (dict): structure representing the ESP payload
-
-    Returns:
-        esp_payload (dict): structure representing the ESP payload
-    """
-    pad = self.pad( len( esp_payload_data ), pad_len=pad_len )
-    clear_text_esp_payload = {\
-      'data' : esp_payload_data, \
-      'pad' : pad, \
-      'pad_len' : len( pad ), \
-      'next_header' : next_header }
-    esp_payload = ESPPayload.build(\
-                    clear_text_esp_payload,\
-                    data_len=len( esp_payload_data ),\
-                    pad_len=len( pad ) )
-    if debug is True :
-      print( "\n## ESP Payload :" )
-      print( ESPPayload.parse( esp_payload, \
-                        data_len=len( esp_payload_data ), 
-                        pad_len=len( pad ) ) )
-      print( "binary:" )
-      print( binascii.hexlify( esp_payload ) )
+##    if debug is True :
+##      print( "\n## Encrypted ESP:" )
+##      icv_len = self.sa.icv_len()
+##      payload_len = len(encrypted_esp) - 8 - icv_len
+##      print( EncryptedESP.parse( encrypted_esp, \
+##               encrypted_payload_len=payload_len, \
+##               icv_len=icv_len ) ) 
+##      print( "binary:" )
+##      print( binascii.hexlify( encrypted_esp ) )
 
 #    ## SCHC compression 
 #    if schc is True :
 #      print( "compressed ESP Payload :" )
-
-    return esp_payload
-
-  def pack_encrypted_esp(self, clear_text_esp_payload:bytes, debug=False )-> bytes:
-    """ Process the encrypted ESP packet
-
-    These functions have been placed in order to enable the
-    enrichment of ESP. EHC is one example. 
-
-    Args:
-        encrypted_esp_pkt (dict): the structure of an encrypted ESP packet
-
-    Returns:
-        encrypted_esp_pkt (dict): the structure of an encrypted ESP packet
-    """
-    ciphers = self.sa.ciphers_obj()
-    if len(ciphers) == 1:
-      encrypted_payload, icv = \
-        ciphers[0].encrypt_and_digest( clear_text_esp_payload )
-             
-    encrypted_esp = EncryptedESP.build(\
-              {'spi':self.sa.get_spi(),\
-               'sn':self.sa.get_sn(),\
-               'encrypted_payload':encrypted_payload, 'icv':icv}, \
-               encrypted_payload_len=len( encrypted_payload ),\
-               icv_len=len( icv ) )
-
-    if debug is True :
-      print( "\n## Encrypted ESP:" )
-      icv_len = self.sa.icv_len()
-      payload_len = len(encrypted_esp) - 8 - icv_len
-      print( EncryptedESP.parse( encrypted_esp, \
-               encrypted_payload_len=payload_len, \
-               icv_len=icv_len ) ) 
-      print( "binary:" )
-      print( binascii.hexlify( encrypted_esp ) )
-
-#    ## SCHC compression 
-#    if schc is True :
-#      print( "compressed ESP Payload :" )
-    return encrypted_esp 
-
-  def pack_ip( self, encrypted_esp:bytes, debug=False )-> bytes:
-    return ip_esp
+##    return encrypted_esp 
 
 
-  def unpack(self, ip_esp:bytes, debug:bool=False ):
+##    return self.pack_encrypted_esp( clear_text_esp_payload,\
+##                                       debug=debug )
+
+## :set  def pack_esp_payload_data( self, data ):
+##     """ Preprocesses data before ESP encapsulation
+## 
+##     These functions have been placed in order to enable the
+##     enrichment of ESP. EHC is one example. 
+## 
+##     Args:
+##         data (dict/bytes): the data to be formated. When a
+##             structure is provided, the data needs to be converted 
+##             to bytes. 
+##     Returns:
+##         data (bytes): data to encapsulated
+##         next_header (str): the type of data (IPv6, UDP,TCP, 
+##           or "IPv6NoNxt" (default)
+##     """
+## 
+##     # if SA mentions port compression
+##     # if UDP Packet 
+## 
+##     # if TCP packet 
+## 
+##     ## compress openSCHC 
+##     ## return bytes
+##     next_header="IPv6IPv6NoNxt"
+##     return data, next_header
+
+
+##  def pack_clear_text_esp_payload(self, esp_payload_data:bytes, \
+##                                   next_header="IPv6NoNxt", \
+##                                   pad_len=None, debug=False ) -> bytes :
+##    """ Process the ESP payload 
+##
+##    These functions have been placed in order to enable the
+##    enrichment of ESP. EHC is one example. 
+##
+##    Args:
+##        esp_payload (dict): structure representing the ESP payload
+##
+##    Returns:
+##        esp_payload (dict): structure representing the ESP payload
+##    """
+##    pad = self.build_pad( len( esp_payload_data ), pad_len=pad_len )
+##    clear_text_esp_payload = {\
+##      'data' : esp_payload_data, \
+##      'pad' : pad, \
+##      'pad_len' : len( pad ), \
+##      'next_header' : next_header }
+##    esp_payload = ESPPayload.build(\
+##                    clear_text_esp_payload,\
+##                    data_len=len( esp_payload_data ),\
+##                    pad_len=len( pad ) )
+##    if debug is True :
+##      print( "\n## ESP Payload :" )
+##      print( ESPPayload.parse( esp_payload, \
+##                        data_len=len( esp_payload_data ), 
+##                        pad_len=len( pad ) ) )
+##      print( "binary:" )
+##      print( binascii.hexlify( esp_payload ) )
+##
+###    ## SCHC compression 
+###    if schc is True :
+###      print( "compressed ESP Payload :" )
+##
+##    return esp_payload
+
+##  def pack_encrypted_esp(self, clear_text_esp_payload:bytes, debug=False )-> bytes:
+##    """ Process the encrypted ESP packet
+##
+##    These functions have been placed in order to enable the
+##    enrichment of ESP. EHC is one example. 
+##
+##    Args:
+##        encrypted_esp_pkt (dict): the structure of an encrypted ESP packet
+##
+##    Returns:
+##        encrypted_esp_pkt (dict): the structure of an encrypted ESP packet
+##    """
+##    ciphers = self.sa.ciphers_obj()
+##    if len(ciphers) == 1:
+##      encrypted_payload, icv = \
+##        ciphers[0].encrypt_and_digest( clear_text_esp_payload )
+##             
+##    encrypted_esp = EncryptedESP.build(\
+##              {'spi':self.sa.get_spi(),\
+##               'sn':self.sa.get_sn(),\
+##               'encrypted_payload':encrypted_payload, 'icv':icv}, \
+##               encrypted_payload_len=len( encrypted_payload ),\
+##               icv_len=len( icv ) )
+##
+##    if debug is True :
+##      print( "\n## Encrypted ESP:" )
+##      icv_len = self.sa.icv_len()
+##      payload_len = len(encrypted_esp) - 8 - icv_len
+##      print( EncryptedESP.parse( encrypted_esp, \
+##               encrypted_payload_len=payload_len, \
+##               icv_len=icv_len ) ) 
+##      print( "binary:" )
+##      print( binascii.hexlify( encrypted_esp ) )
+##
+###    ## SCHC compression 
+###    if schc is True :
+###      print( "compressed ESP Payload :" )
+##    return encrypted_esp 
+
+##  def pack_ip( self, encrypted_esp:bytes, debug=False )-> bytes:
+##    return ip_esp
+
+
+#  def unpack(self, ip_esp:bytes, debug:bool=False ):
+  def unpack(self, packed:bytes ):
     """ Returns the clear text data of an ESP encrypted packet
 
     unpack reverses the pack function. In fact encrypted_pkt may be
@@ -219,54 +375,185 @@ class ESP:
         data (bytes): the data in clear text.
 
     """
-    encrypted_esp = self.unpack_encrypted_esp( ip_esp, debug=debug )
+#    encrypted_esp = self.unpack_encrypted_esp( ip_esp, debug=debug )
 
-    clear_text_esp_payload = self.unpack_clear_text_esp_payload( encrypted_esp, debug=debug )     
+#    clear_text_esp_payload = self.unpack_clear_text_esp_payload( encrypted_esp, debug=debug )   
+    ## clear_text_esp_payload
+    if self.sa is None:
+      # fields that cannot be decrypted are set to None 
+      self.next_header = None 
+      self.pad_len = None
+      self.data = None
+      self.icv = None
+      signed_payload_len = len( packed ) - 8
+      signed_esp = SignedESP.parse( packed, 
+        signed_payload_len=signed_payload_len )
+      self.spi = signed_esp[ 'spi' ]
+      self.sn = signed_esp[ 'sn' ]
+      self.signed_payload = signed_esp[ 'signed_payload' ]
+    else:
+      self.icv_len = self.sa.icv_len()
+      payload_len = len( packed) - 8 - self.icv_len
+      encrypted_esp = EncryptedESP.parse( packed, \
+               encrypted_payload_len=payload_len, \
+               icv_len=self.icv_len ) 
+      self.spi = encrypted_esp[ 'spi' ]
+      self.sn = encrypted_esp[ 'sn' ]
+      self.icv = encrypted_esp[ 'icv' ]
+      self.encrypted_payload = encrypted_esp[ 'encrypted_payload' ]
+      self.data = b''
+####    if debug is True:
+####      print( f"\n{encrypted_esp}" )
+      ## if we are able to decrypt
+      ciphers = self.sa.ciphers_obj()
+      print( f"ciphers: {self.sa.ciphers_obj()}" )
+      if len(ciphers) == 1: #AEAD
+          clear_text_esp_payload_bytes =\
+            ciphers[0].decrypt_and_verify(\
+              self.encrypted_payload, self.icv )
+# #               encrypted_esp['encrypted_payload'],\
+# #               encrypted_esp['icv'] )
+# #    return clear_text_esp_payload
+        
+# #  clear_text_esp_payload = self.unpack_esp_payload_data( clear_text_esp_payload, debug=debug )
+      self.pad_len = clear_text_esp_payload_bytes[ -2 ] 
+      data_len = len( clear_text_esp_payload_bytes ) - 2 - self.pad_len
+       
+      clear_text_esp_payload = ESPPayload.parse( \
+                                 clear_text_esp_payload_bytes, 
+                                 pad_len=self.pad_len, \
+                                 data_len=data_len )
+      self.next_header = clear_text_esp_payload[ 'next_header' ]
+      self.pad = clear_text_esp_payload[ 'pad' ]
+      data = clear_text_esp_payload[ 'data' ]
+      if self.next_header == 'IPv6':
+        self.data = pyesp.ip6.IP6( packed=data )
+      elif self.next_header == 'UDP':
+        self.data = pyesp.udp.UDP( packed=data )
+      else: 
+        self.data = data   
 
-    esp_data = self.unpack_esp_payload_data( clear_text_esp_payload, debug=debug )
+#  def unpack_encrypted_esp(self, ip_esp:bytes, debug=False ):
+#    return ip_esp
 
-    return esp_data
+##  def unpack_clear_text_esp_payload(self, encrypted_esp:bytes, debug=False):
+##    if debug is True:
+##      print( "\n## Encrypted ESP:" )
+##      print( "binary:" )
+##      print( binascii.hexlify( encrypted_esp ) )
+##
+##    icv_len = self.sa.icv_len()
+##    payload_len = len(encrypted_esp) - 8 - icv_len
+##    encrypted_esp = EncryptedESP.parse( encrypted_esp, \
+##             encrypted_payload_len=payload_len, \
+##             icv_len=icv_len ) 
+##    if debug is True:
+##      print( f"\n{encrypted_esp}" )
+##
+##    ciphers = self.sa.ciphers_obj()
+##    if len(ciphers) == 1: #AEAD
+##        clear_text_esp_payload = ciphers[0].decrypt_and_verify(\
+##               encrypted_esp['encrypted_payload'],\
+##               encrypted_esp['icv'] )
+##    return clear_text_esp_payload
+##
+##  def unpack_esp_payload_data(self, clear_text_esp_payload:bytes, debug=False )->bytes:
+##
+##    if debug is True:
+##      print( "\n## ESP Payload :" )
+##      print( "binary:" )
+##      print( binascii.hexlify( clear_text_esp_payload ) )
+##
+##    pad_len = clear_text_esp_payload[ -2 ] 
+##    data_len = len( clear_text_esp_payload ) - 2 - pad_len
+##    
+##    clear_text_esp_payload = ESPPayload.parse( \
+##                               clear_text_esp_payload, 
+##                               pad_len=pad_len, \
+##                               data_len=data_len )
+##    if debug is True:
+##      print( clear_text_esp_payload )
+##
+##    return clear_text_esp_payload[ 'data' ]
+##
 
-  def unpack_encrypted_esp(self, ip_esp:bytes, debug=False ):
-    return ip_esp
+  def show( self ):
+    """Display the Generic Header Extention
 
-  def unpack_clear_text_esp_payload(self, encrypted_esp:bytes, debug=False):
-    if debug is True:
-      print( "\n## Encrypted ESP:" )
-      print( "binary:" )
-      print( binascii.hexlify( encrypted_esp ) )
+    ESP has its own show function as some parameters 
+    MUST be passed to the parse function.
+    This show mostly works as if no encryption occurs.
 
-    icv_len = self.sa.icv_len()
-    payload_len = len(encrypted_esp) - 8 - icv_len
-    encrypted_esp = EncryptedESP.parse( encrypted_esp, \
-             encrypted_payload_len=payload_len, \
-             icv_len=icv_len ) 
-    if debug is True:
-      print( f"\n{encrypted_esp}" )
-
-    ciphers = self.sa.ciphers_obj()
-    if len(ciphers) == 1: #AEAD
-        clear_text_esp_payload = ciphers[0].decrypt_and_verify(\
-               encrypted_esp['encrypted_payload'],\
-               encrypted_esp['icv'] )
-    return clear_text_esp_payload
-
-  def unpack_esp_payload_data(self, clear_text_esp_payload:bytes, debug=False )->bytes:
-
-    if debug is True:
-      print( "\n## ESP Payload :" )
-      print( "binary:" )
-      print( binascii.hexlify( clear_text_esp_payload ) )
-
-    pad_len = clear_text_esp_payload[ -2 ] 
-    data_len = len( clear_text_esp_payload ) - 2 - pad_len
-    
-    clear_text_esp_payload = ESPPayload.parse( \
-                               clear_text_esp_payload, 
-                               pad_len=pad_len, \
-                               data_len=data_len )
-    if debug is True:
-      print( clear_text_esp_payload )
-
-    return clear_text_esp_payload[ 'data' ]
+    """
+    ## mostly to ensure we have the value for icv 
+    ## / icv_len
+    if self.icv == None:
+      encrypted_packed = self.packed = self.pack( )
+      self.unpack( encrypted_packed )
+    ## without self.data we cannot display the clear text
+    if self.data is None:
+      if self.encrypted_payload is not None and\
+        self.icv is not None:
+        packed = EncryptedESP.build(
+          { "spi" : self.spi, 
+            "sn" : self.sn,
+             "encrypted_payload" : self.encrypted_payload,
+             "icv" : self.icv }, \
+        encrypted_payload_len = len( self.encrypted_payload ),\
+        icv_len = len( self.icv ) )
+        unpacked = EncryptedESP.parse( packed, 
+          encrypted_payload_len = len( self.encrypted_payload ),\
+          icv_len = len( self.icv ) )
+      elif self.signed_payload is not None:
+        packed = SignedESP.build( 
+          { 'spi' : self.spi, 
+            'sn' : self.sn, 
+            'signed_payload' : self.signed_payload}, 
+          signed_payload_len = len( self.signed_payload) )
+        unpacked = SignedESP.parse( packed, \
+          signed_payload_len = len( self.signed_payload) )
+      else:
+        raise ValueError( "unable to display ESP without data" )
+    ## we show the clear text     
+    else:    
+      data = self.data
+      print( f"__dict__: {self.__dict__ }" )
+      print( f"data: {type( data) }" )
+      print( f"icv: {self.icv} / {type( self.icv) }" )
+      if isinstance( self.data, bytes ) is False:
+        data = self.data.pack()
+      data_len = len( data ) 
+      pad = self.build_pad( data=data)
+      pad_len = len( pad )
+      ## only used to show
+      packed = ClearTextESP.build( 
+              { "spi" : self.spi, 
+                "sn" : self.sn,
+                "payload" : {\
+                  'data' : data,
+                  'pad' : pad,
+                  'pad_len' : pad_len,
+                  'next_header' : self.next_header },
+                "icv" :self.icv }, \
+                data_len=data_len, pad_len=pad_len,\
+                icv_len=self.icv_len )
+   
+#      packed = ESPPayload.build(\
+#        { 'data' : data,
+#          'pad' : pad,
+#          'pad_len' : len( pad ),
+#          'next_header' : self.next_header },
+#           data_len=len( data ),
+#           pad_len=len( pad ) )
+      ##  unpacked = self.struct.parse( packed )
+      unpacked = ClearTextESP.parse(\
+              packed,
+              data_len=data_len,
+              pad_len=pad_len, 
+              icv_len=self.icv_len )  
+      print( f"## {unpacked._name} ##" )
+      print( unpacked )
+      print( "binary (encrypted EXP):" )
+      print( binascii.hexlify( encrypted_packed, sep=' ' ) )
+      print( "\n" )
 

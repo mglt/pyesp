@@ -1,9 +1,11 @@
-from pkt import Pkt
-from ipstack import ipv6_header, ipv4_header, Ipv6Address, IpAddress
+#from pkt import Pkt
+#from ipstack import ipv6_header, ipv4_header, Ipv6Address, IpAddress
 from ipaddress import IPv4Address, IPv6Address
-from ehc_esp import EHC_SA, EHC_ESP
-from esp import ESP
-from sa import SA
+#from ehc_esp import EHC_SA, EHC_ESP
+import pyesp
+
+from pyesp.h6_esp import ESP
+from pyesp.sa import SA
 
 class SP:
     def __init__(self):
@@ -151,9 +153,9 @@ class SAD:
     def append(self, sa):
         self.sad.append(sa)
 
-class IPsecStack:
+class IPsec:
 
-    def __init__(self, sp_list, template):
+    def __init__(self, sp_list=[], template=None):
         self.spd = SPD(sp_list)
         self.sad = SAD()
         self.template = None
@@ -173,6 +175,28 @@ class IPsecStack:
             sa.ehc_strategy = "NULL"
         return sa    
 
+    def outbound_esp( self, ip6, sa):
+      if sa.mode == 'tunnel':
+        x_esp = pyesp.h6_esp.ESP( sa=sa, data=ip6)   
+        tun_h6 = pyesp.h6.H6( src_ip=sa.tunnel_src_ip,
+                dst_ip=sa.tunnel_dst_ip, next_header='ESP' )
+
+        tun_ip6 = pyesp.ip6.IP6( header=tun_h6, 
+                ext_header_list= [ x_esp ] )
+        return tun_ip6
+      elif sa.mode == 'transport':
+        x_esp = pyesp.h6_esp.ESP( sa=sa, data=ip6.payload )   
+        ip6 = ip6.ext_header_list.append( x_esp )
+        ip6.payload = b''
+        return ip6
+      else: 
+        raise ValueError( "unknown IPsec mode: {sa.mode}" )
+      return out_ip6
+
+    def inbound_esp( self, ip6, sa):
+      if sa.mode == 'tunnel':
+
+      elif sa.mode == 'transport':
 
     def from_bytes(self, byte_pkt):
         ## checking ip header
@@ -308,4 +332,163 @@ class IPsecStack:
                 outbound.pkt = outer_ip
                 return outbound.to_bytes()
 
+
+
+##class IPsecStack:
+##
+##    def __init__(self, sp_list, template):
+##        self.spd = SPD(sp_list)
+##        self.sad = SAD()
+##        self.template = None
+##   
+##    def syst_sa(self, sa):
+##        if self.template == 'ehc_iot':
+##            sa.ehc_strategy = "Diet-ESP"
+##            sa.esp_align = 8 
+##            sa.esp_spi_lsb = 2 
+##            sa.esp_sn_lsb = 2
+##        elif self.template == 'ehc_vpn':
+##            sa.ehc_strategy = "Diet-ESP"
+##            sa.esp_align = 8 
+##            sa.esp_spi_lsb = 2 
+##            sa.esp_sn_lsb = 2 
+##        else:
+##            sa.ehc_strategy = "NULL"
+##        return sa    
+##
+##
+##    def from_bytes(self, byte_pkt):
+##        ## checking ip header
+##        outer_pkt = Pkt()
+##        outer_ip = outer_pkt.ip_header_from_bytes(byte_pkt)
+##        if outer_ip == None:
+##            return None
+##        ## non ESP packet
+##        if outer_ip['protocol'] != 'ESP':
+##             if outer_ip['version'] == 6:
+##                 pkt = Pkt(layers=['IPv6'])
+##             else:
+##                 pkt = Pkt(layers=['IPv4'])
+##             pkt.from_bytes(byte_pkt)
+##             sp = self.spd_get_sp_from_ts(pkt.ts())
+##             if sp.policy == 'BYPASS':
+##                return pkt
+##             return None
+##        ## ESP packet
+##        sa = self.sad.get_sa_from_spi(byte_pkt[40:44])
+##        if isinstance(sa, SA):
+##            esp = ESP(sa)
+##        elif isinstance(sa, EHC_SA):
+##            esp = EHC_ESP(sa)
+##        encrypted_esp = esp.from_bytes(byte_pkt[40:])
+##        ct_esp = esp.unpack(encrypted_esp)
+##        if sa.mode == 'tunnel':
+##            pkt = Pkt()
+##            return pkt.from_bytes(ct_esp['data'])
+##        elif sa.mode == 'transport':
+##            pkt = Pkt(layers=['UDP'])
+##            return {'header': outer_ip, 'next':  pkt.pkt}
+##
+##
+##    def get_sa_sp_from_pkt(self, pkt):
+##        inner_pkt = self.dict_to_pkt(pkt)
+##        sa = self.sad.get_sa_from_ts(inner_pkt.ts())
+##        sp = self.spd.get_sp_from_ts(inner_pkt.ts())
+##        if sa == None and sp.policy == 'PROTECT':
+##            sa = sp.create_sa()
+##            sa = self.syst_sa(sa)
+##            self.sad.append(sa)
+##        return sa, sp
+##
+##    def dict_to_pkt(self, pkt):
+##        try:
+##            ip_version = pkt['header']['header']['version']
+##            next_layer_proto = pkt['header']['protocol']
+##        except KeyError:
+##            ip_version = None
+##        if ip_version == 4:
+##            inner_pkt = Pkt(layers=['IPv4', 'UDP'])
+##        elif ip_version == 6:
+##            inner_pkt = Pkt(layers=['IPv6', 'UDP'])
+##        else:
+##            inner_pkt = Pkt(layers=['application'])
+##        inner_pkt.pkt = pkt
+##        return inner_pkt
+##
+##    def outbound(self, pkt):
+##
+##        sa, sp = self.get_sa_sp_from_pkt(pkt) 
+##        if sp.policy == 'BYPASS':
+##            return pkt
+##        elif sp.policy == 'DISCARD':
+##            return {}
+##
+##        esp = EHC_ESP(sa)
+##        ip_version = pkt['header']['header']['version']
+##        if sa.mode == 'tunnel':
+##            if ip_version == 4:
+##                next_header = 'IPv4'
+##            else: #pkt['header']['version'] == 6:
+##                next_header = 'IPv6'
+##            payload = self.dict_to_pkt(pkt)
+##            esp_pkt = esp.pack(payload.to_bytes(), next_header=next_header)
+##            byte_esp_pkt = esp.to_bytes(esp_pkt)
+##            try:
+##                IPv6Address(sa.tunnel_header[0])
+##                outbound_pkt = Pkt(ip6_src=sa.tunnel_header[0], \
+##                                   ip6_dst=sa.tunnel_header[1], \
+##                                   payload=byte_esp_pkt, \
+##                                   layers=['IPv6', 'ESP'])
+##            except:
+##                outbound_pkt = Pkt(ip4_src=sa.tunnel_header[0], \
+##                                   ip4_dst=sa.tunnel_header[1], \
+##                                   payload=byte_esp_pkt, \
+##                                   layers=['IPv4', 'ESP'])
+##            outbound_pkt.pkt['next']=esp_pkt
+##            return outbound_pkt.pkt
+##        elif sa.mode == 'transport':
+##            next_header = pkt['header']['protocol']
+##            if next_header == 'UDP':
+##                payload = Pkt(layers=['UDP'])
+##            elif next_header == 'TCP':
+##                payload = Pkt(layers=['TCP'])
+##            payload.pkt = pkt['next']
+##            esp_pkt = esp.pack(payload.to_bytes(), next_header=next_header)
+##            byte_esp_pkt = esp.to_bytes(esp_pkt)
+##            pkt['header']['protocol'] = 'ESP'
+##            pkt['header']['payload_length'] = len(byte_esp_pkt)
+##            pkt['next'] = esp_pkt
+##            return pkt
+##            
+##            
+##    def to_bytes(self, pkt, ct_pkt):
+####        if pkt['header']['protocol'] == 'ESP':
+##        sa, sp = self.get_sa_sp_from_pkt(ct_pkt)
+##        if sp.policy == 'BYPASS':
+##            outbound_pkt = Pkt()
+##            outbound_pkt.pkt = pkt
+##            return outbound_pkt.to_bytes()
+##        elif sp.policy == 'DISCARD':
+##            return b''
+##
+##        esp = EHC_ESP(sa)
+##        ip_version = pkt['header']['header']['version']
+##        if ip_version == 6:
+##            if pkt['header']['protocol'] == 'ESP':
+##                payload = pkt['next'] 
+##                return ipv6_header.build(pkt['header']) + \
+##                       esp.to_bytes(payload) 
+##            else:
+##                outbound = Pkt(layers=['IPv6', 'UDP'])
+##                outbound.pkt = pkt
+##                return outbound.to_bytes()
+##        elif ip_version == 4:
+##            if outer_ip['header']['protocol'] == 'ESP':
+##                return ipv4_header.build(pkt['header']) + \
+##                       esp.to_bytes(pkt['next']) 
+##            else:
+##                outbound=Pkt(layers=['IPv4', 'UDP'])
+##                outbound.pkt = outer_ip
+##                return outbound.to_bytes()
+##
 

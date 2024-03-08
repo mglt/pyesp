@@ -464,7 +464,7 @@ class H6:
     print( unpacked ) 
     print( "binary:" )
     print( binascii.hexlify( packed, sep=' ' ) )
-    print( "\n" )
+#    print( "\n" )
  
 
 ###  def compute_next_header( self, i=0 ):

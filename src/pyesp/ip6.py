@@ -20,6 +20,8 @@ class IP6:
       self.header = header
       self.ext_header_list = ext_header_list
       self.payload = payload
+    ## in case of encapsulation
+#    self.next_header = self.header.next_header
 
   def pack( self, ):
     """ consolidates the extensions and output the corresponding bytes """ 
@@ -66,16 +68,21 @@ class IP6:
     self.header = pyesp.h6.H6( packed=bytes_ip6[ byte_pointer:40 ] )
     byte_pointer = 40
     next_header = self.header.next_header
-    remainin_length = self.header.payload_length
+#    self.next_header = self.header.next_header
+    remaining_length = self.header.payload_length
+    if remaining_length == 0:
+      self.payload = b''
+#    print( f" remainin_length: {remainin_length}" )
     self.ext_header_list = []
-    while next_header is not None :
+#    while next_header is not None :
+    while byte_pointer < 40 + remaining_length :
       print( f"next_header: {next_header}" )  
       ## IP6 Header Extension
       if next_header in [ 'HOPOPT', 'IPv6Route', 'IPv6Frag', 'ESP',\
                           'AH', 'IPv6Opts', 'MobilityHeader', 'HIP',\
                           'Shim6', 'EXP1', 'EXP2' ]:  
         if next_header == "ESP" :
-          length = remainin_length
+          length = remaining_length
         elif next_header == "AH" :
           length = 4 * ( bytes_ip6[ byte_pointer + 1 ] + 2 )
         else:
@@ -88,14 +95,22 @@ class IP6:
         elif next_header == 'IPv6Route':  
           ext = None  
         elif next_header == 'ESP' :
-          ext = pyesp.h6_esp.ESP( packed=packed ) 
+          ext = pyesp.h6_esp.ESP( packed=packed )
+          ## in the case of ESP the payload is assumed to be b''
+          ## we need this to initialize self.payload and remain
+          ## consistent
+          self.payload = b''
           #unpack_clear_text_esp_payload ) 
         elif next_header == 'AH' :
           ext = None
         else: 
           ext = pyesp.h6_x.H6X( packed=packed )
         self.ext_header_list.append( ext )
-        next_header = self.ext.next_header
+#        if next_header == 'IP6':
+#          self.unpack(   
+#          next_header = self.ext.header.next_header
+#        else:   
+        next_header = ext.next_header
         byte_pointer += byte_pointer + length 
       else:
 #        if next_header == 'IPv6NoNxt':

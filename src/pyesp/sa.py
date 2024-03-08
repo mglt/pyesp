@@ -44,7 +44,8 @@ class SA:
         self.lifetime_bytes = None 
         self.lifetime_time = None
         self.mode = "tunnel"
-        self.tunnel_header = ('::1', '::1')
+        self.tunnel_src_ip = IPv6Address( '::67' )
+        self.tunnel_dst_ip = IPv6Address( '::33')
         self.path_mtu = None
         ## TS from spd
         self.ext_seq_num_flag = True ## we need this to specify the type
