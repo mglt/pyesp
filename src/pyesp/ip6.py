@@ -20,6 +20,7 @@ class IP6:
       self.header = header
       self.ext_header_list = ext_header_list
       self.payload = payload
+    self.header_type = 'IPv6'
     ## in case of encapsulation
 #    self.next_header = self.header.next_header
 
@@ -52,6 +53,9 @@ class IP6:
 
     self.header.payload_length = len( pack_bytes )
     self.header.next_header = next_header_type
+#    print( f"----- pack -----" )
+#    print( f"    - next_header_type: {next_header_type}" )
+#    self.header.show()
     pack_bytes = self.header.pack() + pack_bytes
     return pack_bytes
 
@@ -125,10 +129,24 @@ class IP6:
         self.payload = payload  
         break
 
+  def contains( self, header_type:str )-> bool:
+    """ determine is an extension or a certain payload type is present 
+    """
+
+    for hx in self.ext_header_list:
+      if hx.header_type == header_type : 
+        return True
+    if isinstance( self.payload, bytes ) == False:
+      if self.payload.header_type == header_type:
+        return True
+    return False
+      
 
   def show( self ):
     """Display the IP6 packet 
     """
+    ## to synchronize various fields such as length, next_header
+    self.unpack( self.pack() )
     print( "## IP6 ##" )
 #    print( "------ IPv6 Header ------" )
     print( self.header.show() )

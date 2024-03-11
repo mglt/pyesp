@@ -186,8 +186,13 @@ class ESP:
         raise ValueError( "Unable to pack ESP without data" )
       return encrypted_esp_payload
     ## we have self.data in clear text
+    ## whenever possible update next_header according to self.data
     else:   
       if isinstance( self.data, bytes ) is False:
+#        if isinstance( self.data, pyesp.ip6.IP6 ):   
+#          self.next_header = self.data.header.header_type  
+#        else:  
+        self.next_header = self.data.header_type  
         data = self.data.pack()
       else: 
         data = self.data    
@@ -426,6 +431,7 @@ class ESP:
       self.next_header = clear_text_esp_payload[ 'next_header' ]
       self.pad = clear_text_esp_payload[ 'pad' ]
       data = clear_text_esp_payload[ 'data' ]
+      print( f"self.next_header: {self.next_header}" )
       if self.next_header == 'IPv6':
         self.data = pyesp.ip6.IP6( packed=data )
       elif self.next_header == 'UDP':

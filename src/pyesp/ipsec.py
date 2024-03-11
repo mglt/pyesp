@@ -185,19 +185,48 @@ class IPsec:
                 ext_header_list= [ x_esp ] )
         return tun_ip6
       elif sa.mode == 'transport':
-        x_esp = pyesp.h6_esp.ESP( sa=sa, data=ip6.payload )   
-        ip6 = ip6.ext_header_list.append( x_esp )
+        ## next_header value is carried by the last 
+        ## extension header of the IPv6 header
+        hx_len = len( ip6.ext_header_list )
+        if hx_len == 0:
+          esp_next_header = ip6.header.next_header  
+          ip6.header.next_header = 'ESP'
+        else:
+          esp_next_header = ip6.ext_header_list[ -1 ].next_header  
+          ip6.ext_header_list[ -1 ].next_header = 'ESP'
+        x_esp = pyesp.h6_esp.ESP( sa=sa, data=ip6.payload,\
+                next_header=esp_next_header )
+        ip6.ext_header_list.append( x_esp )
         ip6.payload = b''
         return ip6
       else: 
         raise ValueError( "unknown IPsec mode: {sa.mode}" )
-      return out_ip6
 
     def inbound_esp( self, ip6, sa):
+      x_esp = ip6.ext_header_list[ -1 ]  
+      x_esp.sa = sa
+      x_esp.unpack( x_esp.pack( ) )
       if sa.mode == 'tunnel':
-
+        return x_esp.data
       elif sa.mode == 'transport':
+        ## removing ESP extension
+        ip6.ext_header_list.pop( )
+        ## updating the next_header
+        hx_len = len( ip6.ext_header_list )
+        if hx_len == 0:
+          ip6.header.next_header = x_esp.next_header
+        else:
+          ip6.ext_header_list[ -1 ].next_header = x_esp.next_header
+        if isinstance( x_esp.data, list ):
+          ip6.ext_header_list.expand( x_esp.data[ : -1 ] )
+          ip6.payload = x_esp.data[ -1 ]
+        elif isinstance( x_esp.data, pyesp.udp.UDP ):  
+          ip6.payload = x_esp.data
+        elif isinstance( x_esp.data, bytes ):  
+          ip6.unpack( ip6.pack() + x_esp.data )
+        return ip6 
 
+           
     def from_bytes(self, byte_pkt):
         ## checking ip header
         outer_pkt = Pkt()

@@ -409,6 +409,7 @@ class H6:
 
     self.struct = IPv6Header
     self.version = 6
+    self.header_type = 'IPv6'
     if packed is not None:
       self.unpack( packed )
     else:
