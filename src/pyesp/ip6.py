@@ -21,8 +21,6 @@ class IP6:
       self.ext_header_list = ext_header_list
       self.payload = payload
     self.header_type = 'IPv6'
-    ## in case of encapsulation
-#    self.next_header = self.header.next_header
 
   def pack( self, ):
     """ consolidates the extensions and output the corresponding bytes """ 
@@ -53,9 +51,6 @@ class IP6:
 
     self.header.payload_length = len( pack_bytes )
     self.header.next_header = next_header_type
-#    print( f"----- pack -----" )
-#    print( f"    - next_header_type: {next_header_type}" )
-#    self.header.show()
     pack_bytes = self.header.pack() + pack_bytes
     return pack_bytes
 
@@ -72,15 +67,11 @@ class IP6:
     self.header = pyesp.h6.H6( packed=bytes_ip6[ byte_pointer:40 ] )
     byte_pointer = 40
     next_header = self.header.next_header
-#    self.next_header = self.header.next_header
     remaining_length = self.header.payload_length
     if remaining_length == 0:
       self.payload = b''
-#    print( f" remainin_length: {remainin_length}" )
     self.ext_header_list = []
-#    while next_header is not None :
     while byte_pointer < 40 + remaining_length :
-      print( f"next_header: {next_header}" )  
       ## IP6 Header Extension
       if next_header in [ 'HOPOPT', 'IPv6Route', 'IPv6Frag', 'ESP',\
                           'AH', 'IPv6Opts', 'MobilityHeader', 'HIP',\
@@ -110,16 +101,9 @@ class IP6:
         else: 
           ext = pyesp.h6_x.H6X( packed=packed )
         self.ext_header_list.append( ext )
-#        if next_header == 'IP6':
-#          self.unpack(   
-#          next_header = self.ext.header.next_header
-#        else:   
         next_header = ext.next_header
         byte_pointer += byte_pointer + length 
       else:
-#        if next_header == 'IPv6NoNxt':
-#          payload = b''
-#        else: 
         packed = bytes_ip6[ byte_pointer: ]
 
         if next_header == 'UDP':
@@ -148,15 +132,12 @@ class IP6:
     ## to synchronize various fields such as length, next_header
     self.unpack( self.pack() )
     print( "## IP6 ##" )
-#    print( "------ IPv6 Header ------" )
-    print( self.header.show() )
+    self.header.show()
     if len( self.ext_header_list ) != 0:
-#      print( "------ IPv6 Header Extension ------" )
       for h_ext in self.ext_header_list:
         h_ext.show()
     if self.payload == b'': 
       pass
     else: 
-#      print( "------ IPv6 Payload ------" )
       self.payload.show()    
               
