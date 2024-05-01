@@ -108,6 +108,8 @@ class IP6:
 
         if next_header == 'UDP':
           payload = pyesp.udp.UDP( packed=packed )
+        elif next_header == 'SCHC':
+          payload = pyesp.schc.SCHC( packed=packed )    
         else: 
           payload = packed
         self.payload = payload  

@@ -5,7 +5,9 @@ from ipaddress import IPv4Address, IPv6Address
 from construct.core import *
 from construct.lib import *
 
-from pyesp.ipstack import IpAddress, Ipv6Address
+#from pyesp.ipstack import IpAddress, Ipv6Address
+from pyesp.h6 import Ipv6Address
+from pyesp.h4 import IpAddress
 #from ipsec import SP
 
 IIV_Nonce = IfThenElse(this.ext_seq_num_flag,
@@ -55,7 +57,12 @@ class SA:
         self.next_layer_proto = "ANY"
         self.local_port = "ANY" ## "ANY" or range
         self.remote_port = "ANY" # or range
-
+        
+        ### Temporary argument for EHC compression
+        self.ehc_pre_esp = None
+        self.ehc_clear_text_esp = None
+        self.ehc_esp = None
+        
     def show(self):
         print("   - local_address: %s"%self.local_address)
         print("   - remote_address: %s"%self.remote_address)
