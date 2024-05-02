@@ -212,7 +212,10 @@ class ESP:
           'next_header' : self.next_header },
            data_len=len( data ),
            pad_len=len( pad ) )
-
+      if self.sa.ehc_clear_text_esp is not None:
+        ## SCHC compression
+        pass
+        
       if self.sa is None:
         return esp_payload
    
@@ -228,6 +231,10 @@ class ESP:
                  'icv' : self.icv }, \
                  encrypted_payload_len=len( self.encrypted_payload ),\
                  icv_len=self.icv_len )
+      if self.sa.ehc_esp is not None:
+        eesp_k = pyesp.openschc_k.EncryptedESPKompressor( self.sa.ehc_esp ) 
+        print( f"encrypted_esp_payload: [{type(encrypted_esp_payload)}] {encrypted_esp_payload}" )
+        encrypted_esp_payload = eesp_k.schc( encrypted_esp_payload )
     return encrypted_esp_payload
 
   def unpack(self, packed:bytes ):
@@ -258,6 +265,11 @@ class ESP:
       self.sn = signed_esp[ 'sn' ]
       self.signed_payload = signed_esp[ 'signed_payload' ]
     else:
+      ## UNSCHC ESP  
+      if self.sa.ehc_esp is not None:
+        eesp_k = pyesp.openschc_k.EncryptedESPKompressor( self.sa.ehc_pre_esp ) 
+        packed = eesp_k.unschc( packed )
+
       self.icv_len = self.sa.icv_len()
       payload_len = len( packed) - 8 - self.icv_len
       encrypted_esp = EncryptedESP.parse( packed, \
@@ -273,7 +285,8 @@ class ESP:
           clear_text_esp_payload_bytes =\
             ciphers[0].decrypt_and_verify(\
               self.encrypted_payload, self.icv )
-
+      if sa.ehc_clear_text_esp is not None:
+        ## unschc clear_text_esp_payload_bytes
       self.pad_len = clear_text_esp_payload_bytes[ -2 ] 
       data_len = len( clear_text_esp_payload_bytes ) - 2 - self.pad_len
        

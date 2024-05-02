@@ -191,7 +191,7 @@ class EncryptedESPKompressor( Kompressor ):
 
   def parse( self, byte_packet:bytes ) :
     parsed_esp =  self.parser.parse (byte_packet, 
-                         direction, 
+                         self.direction, 
                          layers=["ESP"],
                          start="ESP")
     if self.verbose is True:  

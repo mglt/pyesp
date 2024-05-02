@@ -227,27 +227,6 @@ class IPsec:
       x_esp.sa = sa
       x_esp.unpack( x_esp.pack( ) )
       if sa.mode == 'tunnel':
-###        ## SCHC pre-esp decompression  
-###        if sa.ehc_pre_esp  is not None:
-###          if x_esp.next_header == 'IPv6':  
-###            ## we only decompress UDP BUT we need to consider IPv6
-###            ## MAY also be compressed
-###            ## We need to be extremely sure we unSCHC what is 
-###            ## associated to ESP. This means that we have to 
-###            ## **deterministically** determine what part is 
-###            ## unschc. In this case UDP MUST be specified by
-###            ## the sa in which case. WE know inner_packet 
-###            ## MUST be UDP.  
-###            if x_esp.data.header.next_header == 'SCHC' :    
-###              pre_esp_k = pyesp.openschc_k.UDPKompressor( sa.ehc_pre_esp )
-###              print( f"x_esp.data: {type( x_esp.data.payload )}" )
-###              udp_bytes = pre_esp_k.unschc( x_esp.data.payload.pack() )           ## we need to make sure UDP can be determined
-###              ## in a deterministic way.
-###              x_esp.data.header.next_header = 'UDP'
-###
-###              x_esp.data.payload = pyesp.udp.UDP( packed=udp_bytes )
-###          elif x_esp.next_header == "SCHC":
-###            pass    
         return x_esp.data
       elif sa.mode == 'transport':
         ## removing ESP extension
