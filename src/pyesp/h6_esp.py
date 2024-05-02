@@ -285,8 +285,9 @@ class ESP:
           clear_text_esp_payload_bytes =\
             ciphers[0].decrypt_and_verify(\
               self.encrypted_payload, self.icv )
-      if sa.ehc_clear_text_esp is not None:
+      if self.sa.ehc_clear_text_esp is not None:
         ## unschc clear_text_esp_payload_bytes
+        pass
       self.pad_len = clear_text_esp_payload_bytes[ -2 ] 
       data_len = len( clear_text_esp_payload_bytes ) - 2 - self.pad_len
        
