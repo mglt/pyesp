@@ -187,19 +187,42 @@ class ESP:
           ## Probably we will have to exclude SCHC to be compressed.
           ## Maybe that case will not exist in the future as IP6 as 
           ## IP6 will automatically be SCHC by diet-ESP
-          if isinstance( self.data, pyesp.ip6.IP6 ) :
-            if isinstance( self.data.payload, pyesp.udp.UDP ):  
+
+          if isinstance( self.data, pyesp.ip6.IP6 ):
+             
+             
+             
+             if isinstance( self.data.payload, pyesp.udp.UDP ): 
+              print("compressing udp header:", self.data.payload) 
               pre_esp_k = pyesp.openschc_k.UDPKompressor( self.sa.ehc_pre_esp )
               schc_udp = pyesp.schc.SCHC( data=pre_esp_k.schc( self.data.payload.pack() ) )
-              self.data.header.next_header = 'SCHC' ## need to consider extensions
-              self.data.payload = schc_udp
-              self.data.len = len( schc_udp.pack() ) ## to be check if that is teh correct value
+              
+              #maryam
+              print("SCHC OF UDP length:",len(schc_udp.pack()))
+              #maryam
+              
+              self.data.header.next_header = 'SCHC' ## need to consider extensions (ipv6 next header = schc)
+              self.data.payload = schc_udp  #The IPv6 has a compressed UDP inside it
+              self.data.len = len( schc_udp.pack() ) ## to be check if that is the correct value
 
-          elif isinstance( self.data, pyesp.udp.UDP ):
-            pre_esp_k = pyesp.openschc_k.UDPKompressor( self.sa.ehc_pre_esp )
-            schc_udp = pyesp.schc.SCHC( data=pre_esp_k.schc( self.data.payload.pack() ) )
+              
+              if isinstance( self, pyesp.h6_esp.ESP ):
+               #print("compressing ipv6 header:", self.data)
+               ip6_compressor = pyesp.openschc_k.IP6Kompressor(self.sa.ehc_pre_esp)
+               compressed_ipv6 = ip6_compressor.schc(self.data.pack())
+               schc_ip6 = pyesp.schc.SCHC(data=compressed_ipv6)
+               #print("schcipv6:", schc_ip6)
+              
+              
+               print("Setting the next header of esp as schc and its data as schc packet")
+               self.next_header = 'SCHC' ## need to consider extensions
+               self.data = schc_ip6  #The ESP has a compressed IPv6 inside it
+               self.data.len = len( schc_ip6.pack() ) ## to be check if that is the correct value
+              
+
+
         #### SCHC completed    
-        data = self.data.pack()
+        data = self.data.pack() #schc object byte array
       else: 
         data = self.data    
       pad = self.build_pad( data=data)
@@ -215,6 +238,7 @@ class ESP:
       if self.sa.ehc_clear_text_esp is not None:
         ## SCHC compression
         pass
+        
         
       if self.sa is None:
         return esp_payload
@@ -233,8 +257,15 @@ class ESP:
                  icv_len=self.icv_len )
       if self.sa.ehc_esp is not None:
         eesp_k = pyesp.openschc_k.EncryptedESPKompressor( self.sa.ehc_esp ) 
-        print( f"encrypted_esp_payload: [{type(encrypted_esp_payload)}] {encrypted_esp_payload}" )
+        #maryam print( f"encrypted_esp_payload: [{type(encrypted_esp_payload)}] {encrypted_esp_payload}" )
         encrypted_esp_payload = eesp_k.schc( encrypted_esp_payload )
+        
+        #maryam
+        string_schc = binascii.hexlify(encrypted_esp_payload).decode()
+        string_size = len(string_schc)
+        byte_size = string_size // 2
+        print("SCHC OF ESP length:",byte_size)
+        
     return encrypted_esp_payload
 
   def unpack(self, packed:bytes ):
@@ -253,6 +284,7 @@ class ESP:
     """
     ## clear_text_esp_payload
     if self.sa is None:
+      print("NONE ESP")
       # fields that cannot be decrypted are set to None 
       self.next_header = None 
       self.pad_len = None
@@ -298,13 +330,24 @@ class ESP:
       self.next_header = clear_text_esp_payload[ 'next_header' ]
       self.pad = clear_text_esp_payload[ 'pad' ]
       data = clear_text_esp_payload[ 'data' ]
+      
+      #maryam code for unparsing schc over ip6
+      #if self.next_header == 'SCHC' :
+       # pre_esp_k = pyesp.openschc_k.IP6Kompressor(self.sa.ehc_pre_esp)
+        #print("see what is data ", self.data )
+       # print("see what is data payload", self.data.payload() )
+       # print("see what is pack", self.data.payload.pack() )
+       # ip6_bytes = pre_esp_k.unschc( self.data.payload.pack() )
+       # self.data = pyesp.ip6.IP6( packed=ip6_bytes )
+        #maryam
       if self.next_header == 'IPv6':
+        #print("ipv6 next header after schc:",self.next_header.next_header)
         self.data = pyesp.ip6.IP6( packed=data )
         ## SCHC decompression. 
         ## We assume here that IPv6/SCHC(UDP) exists. 
         ## This may not exist in the future. 
         if self.sa.ehc_pre_esp  is not None:
-          if self.data.header.next_header == 'SCHC' : ## must be last extension
+          if self.data.header.next_header == 'SCHC': ## must be last extension
             pre_esp_k = pyesp.openschc_k.UDPKompressor( self.sa.ehc_pre_esp )
             udp_bytes = pre_esp_k.unschc( self.data.payload.pack() )
             self.data.header.next_header = 'UDP' ## must be last nh
@@ -320,9 +363,12 @@ class ESP:
           ## In transport it may be a UDP packet i fthe transport 
           ## is specified in the SA.
           ## if sa.transport == UDP:
+          
+          
           pre_esp_k = pyesp.openschc_k.UDPKompressor( self.sa.ehc_pre_esp )
           udp_bytes = pre_esp_k.unschc( self.data.payload.pack() )
           self.data = pyesp.udp.UDP( packed=udp_bytes )
+          
       else: 
         self.data = data   
 

@@ -1,3 +1,4 @@
+
 [{
     "RuleIDValue" : 1,
     "RuleIDLength": 8,
@@ -14,12 +15,12 @@
     "RuleIDValue" : 2,
     "RuleIDLength": 8,
     "Compression": [
-       {"FID": "UDP.DEV_PORT",         
-       "MO": "ignore", 
-       "CDA": "value-sent"},
+      {"FID": "UDP.DEV_PORT",  
+       "TV": 123,"MO": "MSB", 
+       "MO.VAL": 12, "CDA" : "LSB"},
 
       {"FID": "UDP.APP_PORT",  
-       "TV": 5680,"MO": "MSB", 
+       "TV": 4567,"MO": "MSB", 
        "MO.VAL": 12, "CDA" : "LSB"},
 
       {"FID": "UDP.LEN",       
@@ -39,5 +40,25 @@
        "MO": "match-mapping", 
        "CDA": "mapping-sent"}
       ]          
+  },
+  {
+    "RuleIDValue": 4,
+    "RuleIDLength": 8,
+    "Compression": [
+      {
+        "FID": "IPV6.DEV_PREFIX",
+        "MO": "equal",
+        "TV": "ff02::5678",
+        "CDA": "value-sent"
+      },
+      {
+        "FID": "IPV6.APP_PREFIX",
+        "MO": "equal",
+        "TV": "2001:db8::1000",
+        "CDA": "value-sent"
+      }
+    ]
+ 
   }
-]          
+]      
+    
