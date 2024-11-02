@@ -301,3 +301,33 @@ class EncryptedESPKompressor( Kompressor ):
     return esp
 
 
+
+
+class ESPClearTextKompressor(Kompressor):
+    def __init__(self, compression_rule_file, direction=T_DIR_DW, verbose=True):
+        super().__init__(compression_rule_file, direction, verbose)
+        self.next_header = 50  # Default Next Header for ESP
+        
+
+    def parse( self, byte_packet:bytes ) :
+      if isinstance(byte_packet, IP6):
+       byte_packet = byte_packet.pack()
+       parsed_esp =  self.parser.parse (byte_packet, 
+                           self.direction, 
+                           layers=["ESP"],
+                           start="ESP")
+      if self.verbose is True:  
+        show( 'parsed_esp', parsed_esp )
+      return parsed_esp
+
+    def unparse(self, payload: bytes, payload_fields: dict) -> bytes:
+        """Reconstructs the ESP clear text payload from SCHC fields."""
+        
+        # Set default values and retrieve SPI, SEQ, and NEXT HEADER from fields if they exist
+        spi = payload_fields.get(('ESP.SPI', 1), [b'\x00\x00\x00\x00'])[0]
+        sn = payload_fields.get(('ESP.SEQ', 1), [b'\x00\x00\x00\x01'])[0]
+        next_header = payload_fields.get(('ESP.NXT', 1), [int.to_bytes(self.next_header, 1, 'big')])[0]
+        esp_clear_text = bytes( ESP(spi=spi, seq=sn, data=payload ) )
+
+        return esp_clear_text
+
