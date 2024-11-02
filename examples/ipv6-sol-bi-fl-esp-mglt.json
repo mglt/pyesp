@@ -1,5 +1,6 @@
 
-[{
+[
+{
     "RuleIDValue" : 1,
     "RuleIDLength": 8,
     "Compression": [
@@ -36,7 +37,7 @@
     "RuleIDLength": 0,    
     "schc_header": [
        {"FID": "SCHC.NXT",  
-       "TV": [17, 50],       
+       "TV": [17, 50, 41],       
        "MO": "match-mapping", 
        "CDA": "mapping-sent"}
       ]          
@@ -57,8 +58,17 @@
         "TV": "2001:db8::1000",
         "CDA": "value-sent"
       }
+      ]          
+  },
+  {
+    "RuleIDValue" : 5,
+    "RuleIDLength": 8,    
+    "Compression": [
+       {"FID": "ESP.NXT", 
+       "TV": 5, "MO": "equal",     
+       "CDA": "not-sent"}
     ]
- 
   }
-]      
-    
+
+]  
+ 
