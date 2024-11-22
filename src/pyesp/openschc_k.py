@@ -43,13 +43,13 @@ class Kompressor:
     self.next_header = None
 
 #  def parse( self, byte_packet:bytes ) -> Parsed:
-  def parse( self, byte_packet:bytes ):
+ # def parse( self, byte_packet:bytes ):
     """ parses the byte packets into SCHC structure
 
     The SCHC structure is needed to 1) find the rule and 2) 
     build the SCHC packet
     """
-    pass
+  #  pass
 
   def schc( self, byte_packet ) -> bytes:
 
@@ -68,8 +68,7 @@ class Kompressor:
     byte_next_header = int.to_bytes( self.next_header, 1, byteorder='big' )  
     parsed_SCHC_hdr = { ("SCHC.NXT", 1): [ byte_next_header, 8] }
     if self.verbose is True:
-      #show( 'parsed_SCHC_hdr', parsed_SCHC_hdr )
-      pass #maryam
+      show( 'parsed_SCHC_hdr', parsed_SCHC_hdr )
     SCHC_hdr_rule = self.RM.FindRuleFromPacket(
                             pkt=parsed_SCHC_hdr,
                             direction=self.direction,
@@ -77,8 +76,7 @@ class Kompressor:
                             schc_header=True
     )
     if self.verbose is True:
-      #maryam show( 'SCHC_hdr_rule', SCHC_hdr_rule )
-      pass
+      show( 'SCHC_hdr_rule', SCHC_hdr_rule )
     ## compressor outputs a an object of type 
     ## gen_bitarray.BitBuffer
     SCHC_hdr = self.compressor.compress(rule=SCHC_hdr_rule,
@@ -97,8 +95,7 @@ class Kompressor:
                                  append=SCHC_hdr) # append add to the buffer
 
     if self.verbose is True:
-      #maryam 
-      #show( 'SCHC is created SCHC_packet', SCHC_packet )
+      show( 'SCHC is created SCHC_packet', SCHC_packet )
       bit_content = SCHC_packet.get_content()
       string_schc = binascii.hexlify(bit_content).decode()
       string_size = len(string_schc)
@@ -120,7 +117,7 @@ class Kompressor:
       show( "schc_payload", schc_payload ) # [{type(rData)}]: {rData}" )
     schc_payload_rule = self.RM.FindRuleFromSCHCpacket(schc=schc_payload ) 
     if self.verbose is True:
-      show( "schc_payload_rule", schc_payload_rule )         
+      show( "schc_payload_rule", schc_payload_rule )        
     payload_fields = self.decompressor.decompress(rule=schc_payload_rule,
             schc=schc_payload, 
             direction=self.direction, schc_header=False)
@@ -130,7 +127,6 @@ class Kompressor:
     payload = schc_payload.get_remaining_content()
     return self.unparse( payload, payload_fields )
 
-  
 
 
 class UDPKompressor( Kompressor ):
@@ -270,7 +266,7 @@ class EncryptedESPKompressor( Kompressor ):
     super().__init__( compression_rule_file,\
                       direction=T_DIR_DW, 
                       verbose=True )  
-    self.next_header = 50 # \x32
+    self.next_header = 50 # \x32 ESP
 
   def parse( self, byte_packet:bytes ) :
     parsed_esp =  self.parser.parse (byte_packet, 
@@ -278,13 +274,13 @@ class EncryptedESPKompressor( Kompressor ):
                          layers=["ESP"],
                          start="ESP")
     if self.verbose is True:  
-      pass
-      #show( 'parsed_esp', parsed_esp )
+      show( 'parsed_esp spi_sn level', parsed_esp )
     return parsed_esp
 
   def unparse( self,payload:bytes,  payload_fields:dict )->bytes:
     if ('ESP.SPI', 1) in payload_fields:
       spi = int.from_bytes( payload_fields[('ESP.SPI', 1)][0], byteorder="big" )
+      print("SPIAA",spi)
     else: 
       spi = int.from_bytes( payload[ : 4],  "big" )
       payload =  payload[ 4 :]        
@@ -304,30 +300,48 @@ class EncryptedESPKompressor( Kompressor ):
 
 
 class ESPClearTextKompressor(Kompressor):
-    def __init__(self, compression_rule_file, direction=T_DIR_DW, verbose=True):
-        super().__init__(compression_rule_file, direction, verbose)
-        self.next_header = 50  # Default Next Header for ESP
-        
+  def __init__( self, compression_rule_file,\
+          direction=T_DIR_DW, 
+          verbose=True ):
+    super().__init__( compression_rule_file,\
+                      direction=T_DIR_DW, 
+                      verbose=True )  
+    self.next_header = 50 # \x32 ESP
 
-    def parse( self, byte_packet:bytes ) :
-      if isinstance(byte_packet, IP6):
-       byte_packet = byte_packet.pack()
-       parsed_esp =  self.parser.parse (byte_packet, 
-                           self.direction, 
-                           layers=["ESP"],
-                           start="ESP")
-      if self.verbose is True:  
-        show( 'parsed_esp', parsed_esp )
-      return parsed_esp
+  def parse( self, byte_packet:bytes ) :
+    parsed_esp =  self.parser.parse (byte_packet, 
+                         self.direction, 
+                         layers=["ESP"],
+                         start="ESP")
+    if self.verbose is True:  
+      show( 'parsed_esp (clear text) level', parsed_esp )
+    return parsed_esp
 
-    def unparse(self, payload: bytes, payload_fields: dict) -> bytes:
-        """Reconstructs the ESP clear text payload from SCHC fields."""
+  def unparse(self, payload: bytes, payload_fields: dict) -> bytes:
+        """Reconstructs the ESP clear text payload from SCHC fields. (The next header will be returned here)"""
         
         # Set default values and retrieve SPI, SEQ, and NEXT HEADER from fields if they exist
-        spi = payload_fields.get(('ESP.SPI', 1), [b'\x00\x00\x00\x00'])[0]
-        sn = payload_fields.get(('ESP.SEQ', 1), [b'\x00\x00\x00\x01'])[0]
-        next_header = payload_fields.get(('ESP.NXT', 1), [int.to_bytes(self.next_header, 1, 'big')])[0]
-        esp_clear_text = bytes( ESP(spi=spi, seq=sn, data=payload ) )
-
-        return esp_clear_text
+        #spi = payload_fields.get(('ESP.SPI', 1), [b'\x00\x00\x00\x00'])[0]
+        #sn = payload_fields.get(('ESP.SEQ', 1), [b'\x00\x00\x00\x01'])[0]
+        next_header = payload_fields.get(('ESP.NXT', 1), [int.to_bytes(self.next_header, 1, 'big')])[0] 
+        
+        #esp = bytes(ESP(next_header=next_header, data=payload_combined))
+        #pad = self.build_pad( data=data)
+        #if self.verbose is True:
+        #   show( 'DD Clear Text esp', esp )
+        #clear_text_esp_payload
+        esp_payload = ESPPayload.build(
+            {
+                "data": payload,
+                "pad": b"",
+                "pad_len": 0,
+                "next_header": next_header,
+            },
+            data_len=len(payload),
+            pad_len=0,
+        )
+        if self.verbose:
+            show("Reconstructed ESP Payload", esp_payload)
+        return esp_payload
+        #return esp
 
