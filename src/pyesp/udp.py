@@ -28,8 +28,8 @@ UDPseudoHeader = Struct(
     "dst_ip" / Ipv6Address,
     "zero" / Const( b'\x00' ),
 #    "protocol" / Const( ip6_header.ProtocolType( 'UDP' ) ),
-    "protocol" / Const( b'\x01\x01'),
-    "length" / BitsInteger(2)
+    "protocol" /  Const( b'\x01\x01'),
+    "length" /  BitsInteger(2)
 ) 
 
 class UDP( pyesp.h6.H6 ):
@@ -48,8 +48,8 @@ class UDP( pyesp.h6.H6 ):
     if packed != None:
       self.unpack( packed, src_ip=src_ip, dst_ip=dst_ip )
     else:
-      self.src_port = src_port
-      self.dst_port = dst_port
+      self.src_port = int.from_bytes(src_port.to_bytes(2, byteorder='big'), byteorder='big')#maryam before: src_port
+      self.dst_port = int.from_bytes(dst_port.to_bytes(2, byteorder='big'), byteorder='big')#maryam before: dst_port
       self.length = length
       self.checksum = checksum
       self.data = data
@@ -93,12 +93,12 @@ class UDP( pyesp.h6.H6 ):
 
     self.checksum = 0
     for i in range(0, len( pseudo_header ), 2):
-        w = (pseudo_header[i] << 8) + (pseudo_header[i + 1])
+        w = (pseudo_header[i] << 8) + (pseudo_header[i + 1])  #Big-endian word
         self.checksum += w
 
     self.checksum = (self.checksum >> 16) + (self.checksum & 0xFFFF)
     self.checksum = ~self.checksum & 0xFFFF
-    return self.checksum
+    return self.checksum#.to_bytes(2, byteorder='big') #maryam added: .to_bytes(2, byteorder='big')
 
   def pack( self, src_ip=None, dst_ip=None ):
     """build teh UDP datagram
@@ -145,11 +145,11 @@ class UDP( pyesp.h6.H6 ):
                 f"/ Expecting {expected_checksum}" )
     return self.data
 
-#  def show( self ):
-#    """Display the UDP packet 
-#    """
-#    print( "## UDP ##" )
-#    print( UserDatagram.parse( self.pack( ) ) )
-#    print( "binary:" )
-#    print( self.pack() ) 
-#    print( "\n" )
+  def show( self ):
+    """Display the UDP packet 
+    """
+    print( "## Show UDP ##" )
+    print( UserDatagram.parse( self.pack( ) ) )
+    print( "binary:" )
+    print( self.pack() ) 
+    print( "\n" )

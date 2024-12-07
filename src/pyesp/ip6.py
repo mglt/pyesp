@@ -47,7 +47,7 @@ class IP6:
     for hdr_ext in reversed( self.ext_header_list ):
       hdr_ext.next_header = next_header_type
       next_header_type = hdr_ext.header_type
-      pack_bytes = hdr_ext.pack() + pack_bytes
+      pack_bytes = hdr_ext.pack() + pack_bytes #ESP pack (schc compresion and esp encapsulation)
 
     self.header.payload_length = len( pack_bytes )
     self.header.next_header = next_header_type

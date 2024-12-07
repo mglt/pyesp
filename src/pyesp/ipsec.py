@@ -138,7 +138,8 @@ class SAD:
         return None 
 
     def get_sa_from_spi(self, spi):
-        #self.sad[0].show()
+        self.sad[0].show()
+        print("Show SA SPI")
         for spi_len in [4, 3, 2, 1, 0]:
             spi = spi[:spi_len]
             for sa in self.sad:
@@ -181,23 +182,23 @@ class IPsec:
 ###      ## Maybe this is cleaner to have it inside ESP
 ###      ## so it can be considered by the pack and unpack 
 ###      ## functions
-###      if sa.ehc_pre_esp  is not None:
+      if sa.ehc_pre_esp  is not None:
 ###        ## This is only correct if compression only applies 
 ###        ## to UDP, but compression may also include the full
 ###        ## IPv6 packet in a tunnel mode.
 ###        ## The resulting Compression is ALWAYS a bytes
 ###        ## Maybe we define a specific object for SCHC.
-###        pre_esp_k = pyesp.openschc_k.UDPKompressor( sa.ehc_pre_esp )
-###        schc_udp = pyesp.schc.SCHC( data=pre_esp_k.schc( ip6.payload.pack() ) )
-###        ip6.nh = 146
-###        ip6.payload = schc_udp
-###        ip6.len = len( schc_udp.data ) ## to be checked if len is correct 
+        pre_esp_k = pyesp.openschc_k.UDPKompressor( sa.ehc_pre_esp )
+        schc_udp = pyesp.schc.SCHC( data=pre_esp_k.schc( ip6.payload.pack() ) )
+        ip6.nh = 146
+        ip6.payload = schc_udp
+        ip6.len = len( schc_udp.data ) ## to be checked if len is correct 
       if sa.mode == 'tunnel':
         x_esp = pyesp.h6_esp.ESP( sa=sa, data=ip6) 
 ###        ## SCHC compression for the encrypted ESP
 ###        ## We NEED to keep next_header as ESP.
-###        if sa.ehc_esp is not None:
-###          pass     
+        if sa.ehc_esp is not None:
+          pass     
         tun_h6 = pyesp.h6.H6( src_ip=sa.tunnel_src_ip,
                 dst_ip=sa.tunnel_dst_ip, next_header='ESP' )
 
