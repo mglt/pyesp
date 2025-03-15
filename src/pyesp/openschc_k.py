@@ -35,7 +35,7 @@ class Kompressor:
     self.RM.Add( file=compression_rule_file )
     self.direction = direction
     self.verbose = True
-    self.compressor = compr_core.Compressor()
+    self.compressor = compr_core.Compressor(protocol="SCHC")
     self.decompressor = compr_core.Decompressor()
     ## Parser / UnParser are implemneted by openSCHC
     self.parser = compr_parser.Parser()
@@ -72,8 +72,8 @@ class Kompressor:
     SCHC_hdr_rule = self.RM.FindRuleFromPacket(
                             pkt=parsed_SCHC_hdr,
                             direction=self.direction,
-                            failed_field=True,
-                            schc_header=True
+                            failed_field=True#,
+                            #schc_header=True
     )
     if self.verbose is True:
       show( 'SCHC_hdr_rule', SCHC_hdr_rule )
@@ -82,8 +82,9 @@ class Kompressor:
     SCHC_hdr = self.compressor.compress(rule=SCHC_hdr_rule,
                                  parsed_packet=parsed_SCHC_hdr,
                                  data=b'',
-                                 direction=self.direction,
-                                 verbose=True)    
+                                 direction=self.direction#,
+                                 #verbose=True
+                                 )    
     if self.verbose is True:
      #maryam show( 'SCHC_hdr', SCHC_hdr )
      pass #maryam
@@ -91,8 +92,9 @@ class Kompressor:
                                  parsed_packet=parsed_packet[0],
                                  data= parsed_packet[1],
                                  direction=self.direction,
-                                 verbose=True,
-                                 append=SCHC_hdr) # append add to the buffer
+                                 #verbose=True,
+                                 #append=SCHC_hdr
+                                 ) # append add to the buffer
 
     if self.verbose is True:
       show( 'SCHC is created SCHC_packet', SCHC_packet )
@@ -344,4 +346,3 @@ class ESPClearTextKompressor(Kompressor):
             show("Reconstructed ESP Payload", esp_payload)
         return esp_payload
         #return esp
-
